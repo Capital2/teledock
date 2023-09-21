@@ -3,6 +3,7 @@ package telegram
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	tb "gopkg.in/tucnak/telebot.v2"
@@ -173,6 +174,15 @@ func (t *Telegram) send(to tb.Recipient, what interface{}, options ...interface{
 			return msg
 		}
 
+		// when message exceeds 4096 characters
+		if err.Error() == "telegram: message is too long (400)" {
+			msgs := divideMsg(what.(string))
+			for _, substr := range msgs {
+				t.bot.Send(to, substr, options...)
+			}
+			return nil
+		}
+
 		if try > 5 {
 			log.Error().Err(err).Msg("send aborted, retry limit exceeded")
 			return nil
@@ -206,6 +216,15 @@ func (t *Telegram) reply(to *tb.Message, what interface{}, options ...interface{
 			return msg
 		}
 
+		// when message exceeds 4096 characters
+		if err.Error() == "telegram: message is too long (400)" {
+			msgs := divideMsg(what.(string))
+			for _, substr := range msgs {
+				t.bot.Reply(to, substr, options...)
+			}
+			return nil
+		}
+
 		if try > 5 {
 			log.Error().Err(err).Msg("reply aborted, retry limit exceeded")
 			return nil
@@ -216,6 +235,26 @@ func (t *Telegram) reply(to *tb.Message, what interface{}, options ...interface{
 		time.Sleep(backoff)
 		try++
 	}
+}
+
+func divideMsg(input string) []string {
+	const maxMsgLength = 4084
+	const repl = "</code>\n"
+	if len(input) <= maxMsgLength {
+		if strings.HasSuffix(input, repl) {
+			return []string{input}
+		}
+		return []string{input + repl}
+	}
+
+	endIndex := strings.LastIndex(input[:maxMsgLength], repl)
+	if endIndex == -1 {
+		endIndex = maxMsgLength
+	}
+
+	substr := input[:endIndex+len(repl)]
+	remaining := input[endIndex+len(repl):]
+	return append([]string{substr}, divideMsg(remaining)...)
 }
 
 func (t *Telegram) makeContainerMenu(options types.ContainerListOptions, callback string) *tb.ReplyMarkup {
